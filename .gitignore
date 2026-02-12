@@ -1,0 +1,61 @@
+﻿# .gitignore  home-credit-project
+
+# Generated EDA and report files
+eda_home_credit_train.html
+eda_home_credit_train.qmd
+*.html
+*.qmd
+
+# Data directories / large raw files
+data/
+"data csv/"
+*.csv
+*.csv.gz
+*.parquet
+
+# R / RStudio
+.Rhistory
+.RData
+.Rproj.user/
+.Ruserdata
+.Rproj
+.Renviron
+.Renviron.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+env/
+venv/
+.ipynb_checkpoints/
+*.ipynb
+
+# IDEs and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.cache
+
+# Build/artifacts
+*.o
+*.so
+*.dll
+
+# Secrets / environment
+.env
+.env.*
+
+# Large binary artifacts
+*.rds
+*.h5
+*.RData
+
+# Keep .gitignore tracked
+!.gitignore
