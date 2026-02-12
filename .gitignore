@@ -59,3 +59,4 @@ Thumbs.db
 
 # Keep .gitignore tracked
 !.gitignore
+\n!eda_home_credit_train.qmd

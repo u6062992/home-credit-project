@@ -1,0 +1,562 @@
+
+---
+title: "Exploratory Data Analysis: Home Credit Training Data"
+subtitle: "Target Variable, Missing Data, Data Quality & Transformation Needs"
+author: "U6062992, Data Analysis Team"
+date: today
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show code"
+    theme: cosmo
+    embed-resources: true
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+::: {.callout-note}
+The contents have been reviewed and validated by ERIN BEDNARIK, STUDENT on 02/06/2026.
+:::
+
+---
+
+# Business Problem Statement
+
+## Context & Organizational Mission
+
+Many people struggle to obtain home loans due to poor or non-existent credit histories. This market gap has led to an increase in untrustworthy lenders taking advantage of vulnerable populations. **Home Credit** is an organization committed to broadening financial inclusion and access to loans for the unbanked population by providing a positive and safe lending experience.
+
+## The Core Challenge
+
+Home Credit recognizes that traditional credit scores alone cannot tell the complete story of a person's financial responsibility. Key challenges include:
+
+- **Limited Credit History**: The unbanked population lacks traditional credit records, making assessment with standard methods difficult and often impossible
+- **Risk Management Complexity**: Those with poor credit have demonstrated difficulty with repayment; those with no credit history present unknown behavioral risk
+- **Fairness & Inclusion**: One financial emergency or poor decision can permanently damage credit, even for otherwise responsible individuals. Yet lending to uncertain applicants carries portfolio risk
+- **Need for Model Precision**: Over-approving increases portfolio default risk; over-rejecting limits financial inclusion and misses creditworthy applicants
+
+## Business Objective
+
+Home Credit seeks to develop a **highly accurate predictive model** to estimate the probability that loan applicants will experience repayment difficulties within the first year of loan issuance. This model will enable:
+
+1. **Informed Approvals**: Identify creditworthy applicants with limited or non-traditional credit histories, supporting financial inclusion without increasing portfolio risk
+2. **Transparent Risk Assessment**: Enable consistent, data-driven risk segmentation at loan approval time with clear business logic
+3. **Targeted Support**: Identify applicants unlikely to succeed with loan payments, allowing proactive offer of alternative resources or support programs
+
+## Success Metrics
+
+Model success will be measured using business-aligned credit risk metrics:
+
+- **ROC-AUC**: Improved borrower risk separation, accounting for the imbalanced nature of default events
+- **Repayment Performance**: Stable or improved first-year repayment performance among newly approved loans
+
+## Analytical Approach
+
+This project develops a **binary classification model** to predict the probability that a loan applicant will experience repayment difficulties within the first year. The model integrates:
+
+- Traditional credit variables
+- Alternative behavioral and historical loan data
+- Emphasis on model interpretability and business usability to support credit officers and executives
+
+**Scope**: First-year default prediction for loan applicants  
+**Out of Scope**: Long-term (15–30 year) prediction; post-approval interventions  
+**Constraints**: Fair lending compliance; ethical use of alternative data; model transparency
+
+---
+
+# Executive Summary
+
+This EDA covers the Home Credit application training dataset with **`r nrow(train)`** records and **`r ncol(train)`** features. The analysis focuses on four key areas critical to building an effective default risk model:
+
+1. **Target Variable**: Significantly imbalanced (~8% positive class) — requires careful handling to prevent model bias toward the majority class
+2. **Missing Data**: Extensive missing values in building/property features (~67-70%) — impacts feature availability and imputation strategy
+3. **Data Quality Issues**: Anomalies in employment days, outliers in financial metrics — requires investigation and cleaning before modeling
+4. **Transformation Needs**: Log transformations for skewed distributions, feature engineering opportunities — essential for improving model performance
+
+---
+
+```{r setup}
+library(tidyverse)
+library(skimr)
+
+# Load the training data
+train <- read_csv("c:/Users/bedna/OneDrive/Documents/home-credit-project/data csv/application_train.csv")
+
+# Load column descriptions
+col_desc <- read_csv("c:/Users/bedna/OneDrive/Documents/home-credit-project/data csv/HomeCredit_columns_description.csv")
+```
+
+---
+
+# 1. Target Variable Analysis
+
+## 1.1 Class Distribution
+
+The target variable indicates whether a client experienced payment difficulties (1 = Yes, 0 = No) within the first year of loan issuance—the exact outcome we seek to predict.
+
+```{r target-distribution}
+# Determine the value and percentage of distribution of the target variable.
+target_dist <- train |> 
+  count(TARGET) |>
+  mutate(
+    pct = n / sum(n) * 100,
+    label = c("No Difficulties", "Has Difficulties")
+  )
+
+target_dist
+```
+
+**Key Finding**: The dataset is **heavily imbalanced** with only **`r target_dist$pct[2] |> round(2)`%** positive cases (payment difficulties). This 11:1 imbalance will require careful consideration when modeling to avoid bias toward predicting the majority class.
+
+## 1.2 Target Distribution Visualization
+
+```{r target-plot, fig.width=8, fig.height=5}
+# Produce visualization of the target variable distribution. 
+target_dist |>
+  ggplot(aes(x = fct_reorder(label, TARGET), y = n, fill = factor(TARGET))) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = paste0(pct |> round(2), "%")), vjust = -0.5, size = 5) +
+  labs(
+    title = "Target Variable Distribution - Class Imbalance",
+    x = "Payment Difficulties",
+    y = "Number of Clients",
+    subtitle = "Only 8.07% of clients experienced payment difficulties"
+  ) +
+  scale_fill_manual(values = c("#2ecc71", "#e74c3c")) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text.y = element_text(size = 11),
+    axis.text.x = element_text(size = 11)
+  )
+```
+
+---
+
+# 2. Missing Data Analysis
+
+## 2.1 Overall Missing Data Summary
+
+```{r missing-overview}
+# Calculate missing data summary for each column and categorize by severity
+missing_summary <- train |>
+  summarise(across(everything(), ~sum(is.na(.)))) |>
+  pivot_longer(everything(), names_to = "column", values_to = "missing_count") |>
+  mutate(
+    missing_pct = round(missing_count / nrow(train) * 100, 2),
+    missing_threshold = case_when(
+      missing_pct == 0 ~ "No Missing",
+      missing_pct < 5 ~ "Low (< 5%)",
+      missing_pct < 50 ~ "Medium (5-50%)",
+      missing_pct >= 50 ~ "High (≥ 50%)"
+    )
+  ) |>
+  arrange(desc(missing_pct))
+
+missing_by_threshold <- missing_summary |>
+  group_by(missing_threshold) |>
+  summarise(n_columns = n(), .groups = "drop")
+missing_by_threshold
+```
+
+```{r missing-visual, fig.width=10, fig.height=6}
+# Visualize missing data percentages by column, highlighting severity thresholds
+
+# Columns with most missing data
+missing_top <- missing_summary |> filter(missing_count > 0) |> head(20)
+
+missing_top |>
+  ggplot(aes(x = reorder(column, missing_pct), y = missing_pct, fill = missing_threshold)) +
+  geom_col(show.legend = TRUE) +
+  coord_flip() +
+  labs(
+    title = "Top 20 Columns with Missing Data",
+    x = "Column Name",
+    y = "Missing Data (%)",
+    fill = "Severity"
+  ) +
+  scale_fill_manual(values = c("No Missing" = "#27ae60", "Low (< 5%)" = "#f39c12", 
+                               "Medium (5-50%)" = "#e67e22", "High (≥ 50%)" = "#e74c3c")) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text = element_text(size = 10)
+  )
+```
+
+## 2.2 Detailed Missing Data Analysis
+
+```{r missing-detailed}
+# Provide detailed analysis of missing data by severity category, including counts and examples of columns in each category.
+
+# High missing (>50%)
+high_missing <- missing_summary |>
+  filter(missing_pct >= 50) |>
+  select(column, missing_count, missing_pct)
+
+cat("COLUMNS WITH HIGH MISSING DATA (≥50%):\n")
+cat("Count:", nrow(high_missing), "columns\n\n")
+head(high_missing, 10)
+
+# Medium missing (5-50%)
+med_missing <- missing_summary |>
+  filter(missing_pct >= 5 & missing_pct < 50) |>
+  select(column, missing_count, missing_pct)
+
+cat("\n\nCOLUMNS WITH MEDIUM MISSING DATA (5-50%):\n")
+cat("Count:", nrow(med_missing), "columns\n\n")
+head(med_missing, 10)
+```
+
+## 2.3 Missing Data Solutions
+
+```{r missing-solutions, echo=FALSE}
+# Summarize missing data issues and recommended solutions in a table format, categorized by severity and type of feature (e.g., building features, external sources, etc.).
+
+solutions_df <- tibble(
+  `Missing Data Category` = c(
+    "High (≥50%)",
+    "Building/Property Features",
+    "External Credit Bureau",
+    "Employment Days",
+    "OWN_CAR_AGE",
+    "Low/No Missing"
+  ),
+  `Examples` = c(
+    "COMMONAREA_*, NONLIVINGAPARTMENTS_*, FLOORSMIN_*",
+    "APARTMENTS_*, BASEMENTAREA_*, LIVINGAREA_* (66-70% missing)",
+    "EXT_SOURCE_1, EXT_SOURCE_3, AMT_REQ_CREDIT_BUREAU (30-40% missing)",
+    "DAYS_EMPLOYED (unusual pattern: positive values)",
+    "27.7% missing - car owners only",
+    "DAYS_BIRTH, DAYS_REGISTRATION, most flags"
+  ),
+  `Recommended Action` = c(
+    "Consider dropping or indicator variable + imputation",
+    "Keep for subset analysis; impute with 0 or drop; create 'has_info' flag",
+    "Multiple imputation or keep as-is; missing may be informative",
+    "Investigate anomalies; impute with median/mode or -0 (still employed)",
+    "Drop column or impute as 0 (no car)",
+    "No action needed"
+  )
+)
+
+knitr::kable(solutions_df, format = "html")
+```
+
+---
+
+# 3. Data Quality Issues & Anomalies
+
+## 3.1 Key Data Quality Problems
+
+### 3.1.1 DAYS_EMPLOYED Anomaly
+
+```{r days-employed-issue}
+# DAYS_EMPLOYED is intended to represent the number of days since employment start (negative values). However, there are records with positive values, which is a data quality issue.
+
+# Check DAYS_EMPLOYED
+employed_check <- train |>
+  select(DAYS_EMPLOYED) |>
+  arrange(desc(DAYS_EMPLOYED)) |>
+  head(10)
+
+cat("Top values in DAYS_EMPLOYED (should all be negative):\n")
+employed_check
+
+# Count unusual values
+unusual_employed <- train |>
+  filter(DAYS_EMPLOYED > 0) |>
+  nrow()
+
+cat("\n\nCount of POSITIVE DAYS_EMPLOYED values:", unusual_employed)
+cat("\nPercentage:", round(unusual_employed/nrow(train)*100, 2), "%")
+
+# Statistics
+cat("\n\nDAYS_EMPLOYED Statistics:")
+cat("\nMin:", min(train$DAYS_EMPLOYED))
+cat("\nMax:", max(train$DAYS_EMPLOYED))
+cat("\nMedian:", median(train$DAYS_EMPLOYED))
+```
+
+**Issue**: `r unusual_employed` records have **positive** `DAYS_EMPLOYED` values, which violates the intended meaning (days since employment start). The maximum is `r max(train$DAYS_EMPLOYED)` days (~`r round(max(train$DAYS_EMPLOYED)/365)`+ years), suggesting a data entry error or special code.
+
+**Solution**: Likely these represent clients still employed or a data encoding issue. Investigate further or flag as a separate category.
+
+### 3.1.2 Income and Credit Amount Distribution
+
+```{r income-credit-dist, fig.width=12, fig.height=5}
+# Visualize the distribution of AMT_INCOME_TOTAL and AMT_CREDIT to identify skewness and outliers.
+
+p1 <- train |>
+  ggplot(aes(x = AMT_INCOME_TOTAL)) +
+  geom_histogram(bins = 50, fill = "#3498db", alpha = 0.7) +
+  labs(title = "Income Distribution (Highly Skewed)", 
+       x = "Income", y = "Count") +
+  theme_minimal()
+
+p2 <- train |>
+  ggplot(aes(x = log(AMT_INCOME_TOTAL))) +
+  geom_histogram(bins = 50, fill = "#3498db", alpha = 0.7) +
+  labs(title = "Log-Transformed Income (More Normal)", 
+       x = "Log(Income)", y = "Count") +
+  theme_minimal()
+
+gridExtra::grid.arrange(p1, p2, ncol = 2)
+```
+
+**Finding**: Both `AMT_INCOME_TOTAL` and `AMT_CREDIT` are **highly right-skewed**. Log transformation significantly improves normality.
+
+### 3.1.3 Financial Consistency Check
+
+```{r financial-check}
+# Check for consistency between AMT_CREDIT, AMT_INCOME_TOTAL, and AMT_ANNUITY. Identify extreme credit-to-income ratios.
+
+# Credit amount vs income ratio
+train_check <- train |>
+  mutate(
+    credit_income_ratio = AMT_CREDIT / AMT_INCOME_TOTAL,
+    high_ratio = credit_income_ratio > 10
+  ) |>
+  select(AMT_INCOME_TOTAL, AMT_CREDIT, AMT_ANNUITY, credit_income_ratio, high_ratio)
+
+cat("Credit-to-Income Ratio Statistics:\n")
+cat("Mean:", mean(train_check$credit_income_ratio) |> round(2))
+cat("\nMedian:", median(train_check$credit_income_ratio) |> round(2))
+cat("\nMax:", max(train_check$credit_income_ratio) |> round(2))
+cat("\nRecords with ratio > 10:", sum(train_check$high_ratio))
+cat("\nPercentage:", round(sum(train_check$high_ratio)/nrow(train)*100, 2), "%")
+
+# Show extreme cases
+cat("\n\nExtreme Cases (Credit > 10x Income):\n")
+train_check |>
+  filter(high_ratio) |>
+  arrange(desc(credit_income_ratio)) |>
+  head(5) |>
+  select(-high_ratio)
+```
+
+**Finding**: Most clients have reasonable credit-to-income ratios (~3), but `r sum(train_check$high_ratio)` cases have credit amounts > 10x income, which may indicate data errors or special loan types (e.g., mortgages).
+
+### 3.1.4 Children Count Anomaly
+
+```{r children-check}
+# Check the distribution of CNT_CHILDREN to identify any unrealistic values.
+train |>
+  count(CNT_CHILDREN) |>
+  arrange(desc(n))
+```
+
+**Issue**: One record has 20 children (unrealistic). This appears to be a data entry error or special code.
+
+## 3.2 Age Analysis
+
+```{r age-analysis}
+# Convert DAYS_BIRTH to age in years and analyze the distribution, checking for unrealistic ages.
+
+train_age <- train |>
+  mutate(age_years = -DAYS_BIRTH / 365.25) |>
+  select(age_years)
+
+cat("Age Statistics:\n")
+cat("Min:", min(train_age$age_years) |> round(2), "years")
+cat("\nMax:", max(train_age$age_years) |> round(2), "years")
+cat("\nMedian:", median(train_age$age_years) |> round(2), "years")
+cat("\nMean:", mean(train_age$age_years) |> round(2), "years")
+
+# Check for unrealistic ages
+young <- train_age |> filter(age_years < 20) |> nrow()
+old <- train_age |> filter(age_years > 100) |> nrow()
+cat("\n\nClients < 20 years old:", young)
+cat("\nClients > 100 years old:", old)
+```
+
+**Finding**: Age range is reasonable (18-93 years), though the minimum age of ~18 suggests filtering may have already occurred.
+
+---
+
+# 4. Categorical Variables
+
+## 4.1 Key Categorical Features
+
+```{r categorical-summary}
+# Identify key categorical variables and summarize their distributions, focusing on demographic and contract-related features.
+
+categorical_cols <- train |> select(where(is.character)) |> colnames()
+
+# Focus on key demographic variables
+key_cat <- c("NAME_CONTRACT_TYPE", "CODE_GENDER", "FLAG_OWN_CAR", "FLAG_OWN_REALTY", 
+             "NAME_INCOME_TYPE", "NAME_EDUCATION_TYPE", "NAME_FAMILY_STATUS")
+
+for (col in key_cat) {
+  if (col %in% colnames(train)) {
+    cat("\n\n", col, ":\n")
+    train |>
+      count(!!sym(col)) |>
+      arrange(desc(n)) |>
+      print()
+  }
+}
+```
+
+## 4.2 Contract Type and Target Relationship
+
+```{r contract-target, fig.width=10, fig.height=5}
+# Analyze the relationship between contract type and the target variable to identify if certain contract types are more associated with payment difficulties.
+
+contract_target <- train |>
+  count(NAME_CONTRACT_TYPE, TARGET) |>
+  group_by(NAME_CONTRACT_TYPE) |>
+  mutate(pct = n / sum(n) * 100)
+
+ggplot(contract_target, aes(x = NAME_CONTRACT_TYPE, y = n, fill = factor(TARGET))) +
+  geom_col() +
+  geom_text(aes(label = paste0(pct |> round(1), "%")), 
+            position = position_stack(vjust = 0.5), size = 4) +
+  labs(title = "Target Distribution by Contract Type",
+       x = "Contract Type", y = "Count", fill = "Payment Difficulties") +
+  scale_fill_manual(values = c("#2ecc71", "#e74c3c"), labels = c("No", "Yes")) +
+  theme_minimal()
+```
+
+---
+
+# 5. Feature Engineering & Transformation Recommendations
+
+## 5.1 Features Requiring Transformation
+
+| Feature Type | Examples | Transformation | Rationale |
+|---|---|---|---|
+| **Skewed Amounts** | `AMT_INCOME_TOTAL`, `AMT_CREDIT`, `AMT_ANNUITY` | Log transformation | Right-skewed distributions, improves normality |
+| **Days Features** | `DAYS_BIRTH`, `DAYS_EMPLOYED`, `DAYS_REGISTRATION` | Convert to years/months | More interpretable; handle anomalies |
+| **Time Features** | `WEEKDAY_APPR_PROCESS_START`, `HOUR_APPR_PROCESS_START` | One-hot encode or cyclic features | Categorical data needs encoding |
+| **Ratios** | Income-to-Credit, Credit-to-Annuity | Create new features | May be predictive; removes scale dependency |
+| **Building Features** | All APARTMENTS_*, AREA_*, etc. | Imputation + indicator | 67-70% missing; create "has_building_info" flag |
+| **External Sources** | `EXT_SOURCE_1,2,3` | Multiple imputation | 30-40% missing; could be informative |
+
+## 5.2 Feature Engineering Opportunities
+
+```{r feature-engineering}
+# Create new features based on domain knowledge and data insights, such as financial ratios, age in years, and indicators for missing building information.
+
+# Example transformations
+engineered <- train |>
+  slice_head(n = 10) |>
+  mutate(
+    age_years = -DAYS_BIRTH / 365.25,
+    log_income = log(AMT_INCOME_TOTAL + 1),
+    log_credit = log(AMT_CREDIT + 1),
+    credit_income_ratio = AMT_CREDIT / AMT_INCOME_TOTAL,
+    annuity_income_ratio = AMT_ANNUITY / AMT_INCOME_TOTAL,
+    has_building_info = !is.na(APARTMENTS_AVG),
+    has_ext_source = !is.na(EXT_SOURCE_1) | !is.na(EXT_SOURCE_2) | !is.na(EXT_SOURCE_3)
+  ) |>
+  select(age_years, log_income, log_credit, credit_income_ratio, annuity_income_ratio,
+         has_building_info, has_ext_source)
+
+cat("Example Feature Engineering:\n")
+head(engineered, 5)
+```
+
+---
+
+# 6. Data Cleaning Roadmap
+
+## Priority Actions
+
+### High Priority (Must Do)
+1. **Investigate and handle DAYS_EMPLOYED anomalies**
+   - `r unusual_employed` records with positive values
+   - Consider: flag these records, impute with -0, or separate category
+
+2. **Create indicator variables for missing building data**
+   - 67-70% missing in APARTMENTS_*, FLOORSMIN_*, etc.
+   - Create binary "has_building_info" feature
+   - Decide: drop features or impute with 0
+
+3. **Handle external source missing data**
+   - 30-40% missing in EXT_SOURCE_1 and EXT_SOURCE_3
+   - Analyze if missingness is informative
+   - Consider multiple imputation for modeling
+
+### Medium Priority (Should Do)
+4. **Create derived features**
+   - Log-transformed income, credit, annuity
+   - Financial ratios (credit-to-income, annuity-to-income)
+   - Age in years from DAYS_BIRTH
+
+5. **Encode categorical variables**
+   - One-hot encoding for `NAME_CONTRACT_TYPE`, `CODE_GENDER`, income type, education
+   - Consider ordinal encoding for education/family status if appropriate
+
+6. **Handle outliers**
+   - Income/credit outliers: log transformation helps
+   - CNT_CHILDREN = 20: flag or impute to median
+
+### Low Priority (Nice to Have)
+7. **Create time features from temporal variables**
+   - Day of week effects from `WEEKDAY_APPR_PROCESS_START`
+   - Hour of day effects from `HOUR_APPR_PROCESS_START`
+
+---
+
+# 7. Summary of Data Quality Issues
+
+```{r summary-table, echo=FALSE}
+# Summarize key data quality issues, their severity, impact on modeling, and recommended actions in a clear table format for stakeholders.
+
+issues_df <- tibble(
+  Issue = c(
+    "Class Imbalance",
+    "High Missing Data",
+    "DAYS_EMPLOYED Anomaly",
+    "Income/Credit Skew",
+    "Extreme Ratios",
+    "Outliers"
+  ),
+  Severity = c(
+    "High",
+    "High",
+    "Medium",
+    "Medium",
+    "Low",
+    "Low"
+  ),
+  Impact = c(
+    "Model bias toward majority class",
+    "Loss of information, model instability",
+    "Data quality issue, interpretation problems",
+    "Model assumptions violated",
+    "Data entry errors",
+    "Model instability"
+  ),
+  `Recommended Action` = c(
+    "Use class weights, stratified sampling, SMOTE",
+    "Drop high-missing columns; impute medium-missing; create indicators",
+    "Investigate values > 0; separate category or flag",
+    "Log transformation",
+    "Identify and flag or remove",
+    "Log transform or cap at percentiles"
+  )
+)
+
+knitr::kable(issues_df)
+```
+
+---
+
+# 8. Next Steps
+
+1. **Implement cleaning pipeline** based on the roadmap above
+2. **Validate transformations** with visualization and statistical tests
+3. **Create feature set** for modeling (handle missing data strategically)
+4. **Check correlations** between features and target
+5. **Prepare for modeling** with appropriate preprocessing using class-balanced techniques
+
+
+## 9. Conclusion/Results
+
+This EDA has identified important data quality issues, missing data patterns, and transformation needs in the Home Credit training dataset. Key points include: inequitable class distribution, extensive missing data in building features, anomalies in employment days, and skewed financial variables. The EDA has created a foundation for the Home Credit project. By using AI, I can identify patterns, gaps in data, ect more comprehensively and efficiently than myself. The Databot also provided me with suggestions on how to approach the data quality and cleaning process, which will positively impact the next steps of this project. 

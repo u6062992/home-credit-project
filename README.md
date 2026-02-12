@@ -1,8 +1,4 @@
-# U6062992, ERIN BEDNARIK
-# KAGGLE Home Credit Project
-
-
-## Push Test
+- Quarto source: [Exploratory Data Analysis (.qmd)](eda_home_credit_train.qmd)\r\n- HTML report: [Exploratory Data Analysis (HTML)](eda_home_credit_train.html)\r\n
 I made this change in Positron
 
 ## EDA
