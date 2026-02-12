@@ -1,5 +1,4 @@
-- Quarto source: [Exploratory Data Analysis (.qmd)](eda_home_credit_train.qmd)\r\n- HTML report: [Exploratory Data Analysis (HTML)](eda_home_credit_train.html)\r\n
-I made this change in Positron
+U6062992, Erin Bednarik
 
 ## EDA
 - HTML report: [Exploratory Data Analysis](eda_home_credit_train.html)
