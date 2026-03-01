@@ -31,7 +31,7 @@ cat("STEP 1: Loading Data\n")
 cat(strrep("-", 80), "\n")
 
 # Define paths
-data_path <- "c:/Users/bedna/OneDrive/Documents/home-credit-project/data csv/"
+data_path <- "c:/Users/bedna/OneDrive/Documents/home-credit-project/data/"
 
 # Load application data
 train <- read_csv(paste0(data_path, "application_train.csv"), show_col_types = FALSE)
