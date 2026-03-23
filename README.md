@@ -92,6 +92,7 @@ The script produces:
 ```r
 install.packages(c("tidyverse", "lubridate"))
 source("data_preparation.R")
+```
 
 **Key Achievement:** Successfully handled severe class imbalance (8% default rate) and achieved 25+ percentage point improvement over baseline, demonstrating practical credit risk prediction capabilities.
 
